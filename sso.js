@@ -2,8 +2,8 @@
 
 const path = require('path');
 const fs = require('fs');
-const { spawn } = require('child_process');
 const { chromium } = require('playwright-core');
+const { runAws } = require('./aws');
 
 // IdP-initiated sign-in URL of the AWS SAML app in your identity provider
 // (Entra ID, Okta, Keycloak, Google Workspace, ...). See README.
@@ -96,7 +96,21 @@ function findBrowser() {
   return BROWSER_PATHS.find((p) => fs.existsSync(p)) || null;
 }
 
-async function login() {
+// A second click on "Sign in" while the browser is still open would launch
+// another browser on the same profile and fail on its lock, so concurrent
+// callers share the login in progress.
+let loginInFlight = null;
+
+function login() {
+  if (!loginInFlight) {
+    loginInFlight = doLogin().finally(() => {
+      loginInFlight = null;
+    });
+  }
+  return loginInFlight;
+}
+
+async function doLogin() {
   if (!SSO_LOGIN_URL) {
     throw new Error(
       'SSO is not configured: set SSO_LOGIN_URL to the IdP-initiated sign-in URL of your AWS SAML app (see README).'
@@ -187,24 +201,6 @@ function currentRoles() {
   return state.session ? state.session.roles : null;
 }
 
-function runAwsCli(args) {
-  return new Promise((resolve, reject) => {
-    const child = spawn('aws', args, { stdio: ['ignore', 'pipe', 'pipe'] });
-    let stdout = '';
-    let stderr = '';
-    child.stdout.on('data', (d) => (stdout += d));
-    child.stderr.on('data', (d) => (stderr += d));
-    child.on('error', reject);
-    child.on('close', (code) => {
-      if (code !== 0) {
-        reject(new Error(stderr.trim() || `aws exited with code ${code}`));
-      } else {
-        resolve(stdout);
-      }
-    });
-  });
-}
-
 async function assumeRole(arn) {
   if (!state.session) {
     throw new Error('No active SSO session, sign in again.');
@@ -220,7 +216,7 @@ async function assumeRole(arn) {
 
   let stdout;
   try {
-    stdout = await runAwsCli([
+    stdout = await runAws([
       'sts',
       'assume-role-with-saml',
       '--role-arn',
