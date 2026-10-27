@@ -1,0 +1,1617 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>AWS SSM Web</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0f1115;
+    --surface: #14161b;
+    --surface-2: #1a1d24;
+    --surface-3: #20242d;
+    --border: #262a33;
+    --border-strong: #333a45;
+    --text: #e6e6e6;
+    --muted: #9aa4b2;
+    --faint: #6b7280;
+    --accent: #2563eb;
+    --accent-soft: #1e3a8a55;
+    --ok: #22c55e;
+    --warn: #f59e0b;
+    --danger: #ef4444;
+    --radius: 8px;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  button, input, select { font: inherit; color: inherit; }
+  button {
+    cursor: pointer;
+    border: 1px solid var(--border-strong);
+    background: var(--surface-2);
+    border-radius: 6px;
+    padding: 6px 12px;
+    white-space: nowrap;
+  }
+  button:hover:not(:disabled) { background: var(--surface-3); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.primary { background: var(--accent); border-color: var(--accent); font-weight: 600; }
+  button.primary:hover:not(:disabled) { background: #1d4ed8; }
+  button.danger { background: #7f1d1d; border-color: #991b1b; }
+  button.danger:hover:not(:disabled) { background: #991b1b; }
+  button.ghost { background: transparent; border-color: transparent; color: var(--muted); }
+  button.ghost:hover:not(:disabled) { background: var(--surface-2); color: var(--text); }
+  input, select {
+    background: var(--surface-2);
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    padding: 7px 10px;
+    min-width: 0;
+  }
+  input:focus, select:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+  kbd {
+    font: 11px ui-monospace, SFMono-Regular, Menlo, monospace;
+    background: var(--surface-3);
+    border: 1px solid var(--border-strong);
+    border-bottom-width: 2px;
+    border-radius: 4px;
+    padding: 0 5px;
+    color: var(--muted);
+  }
+
+  /* ---------- top bar ---------- */
+  #topbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: 52px;
+    padding: 0 14px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    flex: 0 0 auto;
+  }
+  .brand { font-weight: 700; letter-spacing: .02em; margin-right: 6px; }
+  .brand span { color: var(--accent); }
+  .seg { display: flex; background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: 7px; padding: 2px; }
+  .seg button { border: none; background: transparent; padding: 4px 10px; border-radius: 5px; color: var(--muted); }
+  .seg button.active { background: var(--accent); color: #fff; }
+  .chip { display: flex; align-items: center; gap: 8px; max-width: 340px; }
+  .chip .chip-label { color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+  .chip .chip-value { overflow: hidden; text-overflow: ellipsis; }
+  .chip .caret { color: var(--faint); }
+  .search-trigger {
+    display: flex; align-items: center; gap: 10px;
+    min-width: 260px; color: var(--muted); justify-content: space-between;
+  }
+  .spacer { flex: 1; }
+  .count { background: var(--surface-3); border-radius: 10px; padding: 0 7px; font-size: 11px; color: var(--muted); }
+  .count.live { background: #14532d; color: #86efac; }
+
+  /* ---------- popovers ---------- */
+  .popover {
+    position: fixed; top: 58px; right: 14px; z-index: 30;
+    width: 380px; max-height: 70vh; overflow-y: auto;
+    background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius);
+    box-shadow: 0 12px 40px #0008; padding: 14px;
+  }
+  .popover h3 { margin: 0 0 10px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+  .popover .note { color: var(--faint); font-size: 12px; }
+  .shortcuts { display: grid; grid-template-columns: auto 1fr; gap: 8px 14px; align-items: center; font-size: 12px; }
+  .shortcuts .group { grid-column: 1 / -1; color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; margin-top: 6px; }
+
+  /* ---------- tabs + terminals ---------- */
+  #tabbar { display: flex; background: var(--surface); border-bottom: 1px solid var(--border); flex: 0 0 auto; }
+  #tabs { flex: 1; display: flex; overflow-x: auto; }
+  #tabTools { display: flex; gap: 6px; padding: 5px 8px; }
+  #tabTools button { padding: 3px 10px; font-size: 12px; }
+  #tabTools button.on { background: #b91c1c; border-color: #b91c1c; }
+  .tab {
+    padding: 9px 16px; font-size: 12px; cursor: pointer; white-space: nowrap;
+    border-right: 1px solid var(--border); display: flex; align-items: center; gap: 10px; color: var(--muted);
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active { background: var(--bg); color: var(--text); box-shadow: inset 0 -2px 0 var(--accent); }
+  .tab .close { color: var(--faint); }
+  .tab .close:hover { color: #fff; }
+  #terminals { flex: 1; position: relative; min-height: 0; }
+  .tab-root { position: absolute; inset: 0; padding: 6px; display: none; }
+  .tab-root.active { display: flex; }
+  .split { display: flex; flex: 1 1 0; min-width: 0; min-height: 0; }
+  .split-row { flex-direction: row; }
+  .split-column { flex-direction: column; }
+  .divider { flex: 0 0 6px; }
+  .divider:hover { background: var(--accent); }
+  .split-row > .divider { cursor: col-resize; }
+  .split-column > .divider { cursor: row-resize; }
+  body.drag-col, body.drag-col * { cursor: col-resize !important; user-select: none; }
+  body.drag-row, body.drag-row * { cursor: row-resize !important; user-select: none; }
+  .pane { display: flex; flex-direction: column; flex: 1 1 0; min-width: 0; min-height: 0; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+  .pane.focused { border-color: var(--accent); }
+  .tab-root.broadcast .pane { border-color: #7f1d1d; }
+  .tab-root.broadcast .pane.focused { border-color: #f87171; }
+  .pane-header { display: flex; align-items: center; gap: 2px; font-size: 11px; padding: 3px 4px 3px 10px; background: var(--surface); color: var(--muted); }
+  .pane.focused .pane-header { color: var(--text); }
+  .pane-header .title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pane-header button { padding: 0 7px; background: transparent; border: none; color: inherit; font-size: 12px; }
+  .pane-header button:hover { background: var(--surface-3); color: #fff; }
+  .pane-body { flex: 1; min-height: 0; padding: 6px; background: var(--bg); }
+
+  /* ---------- home screen ---------- */
+  #empty { position: absolute; inset: 0; overflow-y: auto; display: flex; justify-content: center; }
+  .home { width: min(760px, 100%); padding: 56px 24px; display: flex; flex-direction: column; gap: 28px; }
+  .home h1 { font-size: 22px; margin: 0 0 6px; }
+  .home .lead { color: var(--muted); margin: 0; }
+  .home .cta { display: flex; gap: 10px; flex-wrap: wrap; }
+  .home .cta button { padding: 10px 16px; display: flex; gap: 10px; align-items: center; }
+  .home h2 { font-size: 11px; color: var(--faint); text-transform: uppercase; letter-spacing: .07em; margin: 0 0 10px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+  .card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 12px 14px; cursor: pointer; position: relative;
+  }
+  .card:hover { border-color: var(--accent); background: var(--surface-2); }
+  .card .name { font-weight: 600; margin-bottom: 4px; padding-right: 20px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .card .sub { color: var(--faint); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .card .x { position: absolute; top: 8px; right: 8px; padding: 0 6px; border: none; background: transparent; color: var(--faint); }
+  .card .x:hover { color: var(--text); }
+  .card .x.fav { color: #facc15; }
+
+  /* ---------- palette ---------- */
+  #overlay {
+    position: fixed; inset: 0; z-index: 40; background: #0009;
+    display: flex; justify-content: center; align-items: flex-start; padding-top: 9vh;
+  }
+  #overlay[hidden] { display: none; }
+  #palette {
+    width: min(720px, calc(100vw - 32px)); max-height: 78vh;
+    background: var(--surface); border: 1px solid var(--border-strong); border-radius: 12px;
+    box-shadow: 0 24px 80px #000a; display: flex; flex-direction: column; overflow: hidden;
+  }
+  .pal-head { padding: 14px 14px 10px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 10px; }
+  .pal-head input { font-size: 15px; padding: 10px 12px; background: var(--bg); }
+  .filters { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .filters button { padding: 3px 11px; border-radius: 14px; font-size: 12px; color: var(--muted); }
+  .filters button.active { background: var(--accent-soft); border-color: var(--accent); color: var(--text); }
+  .filters .ctx { margin-left: auto; color: var(--faint); font-size: 12px; }
+  .pal-body { overflow-y: auto; padding: 6px 8px 10px; flex: 1; }
+  .pal-foot {
+    display: flex; gap: 16px; flex-wrap: wrap; padding: 9px 14px; border-top: 1px solid var(--border);
+    color: var(--faint); font-size: 11px; background: var(--bg);
+  }
+  .pal-foot .grow { flex: 1; }
+  .pal-section { font-size: 11px; color: var(--faint); text-transform: uppercase; letter-spacing: .07em; padding: 12px 8px 6px; }
+  .prow {
+    display: flex; align-items: center; gap: 12px; padding: 10px 10px; border-radius: 7px; cursor: pointer;
+  }
+  .prow.active { background: var(--accent-soft); }
+  .prow .lead-icon { width: 16px; text-align: center; flex: 0 0 auto; color: var(--faint); }
+  .prow .pmain { flex: 1; min-width: 0; }
+  .prow .pname { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .prow .pname .txt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .prow .pmeta { color: var(--faint); font-size: 12px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .prow .pactions { display: flex; gap: 4px; align-items: center; flex: 0 0 auto; }
+  .prow .pactions button { padding: 2px 8px; border: none; background: transparent; color: var(--faint); font-size: 14px; }
+  .prow .pactions button:hover { background: var(--surface-3); color: var(--text); }
+  .prow .pactions button.fav { color: #facc15; }
+  .prow .enter-hint { visibility: hidden; }
+  .prow.active .enter-hint { visibility: visible; }
+  .pal-msg { padding: 18px 10px; color: var(--muted); }
+  .pal-msg.error { color: #fca5a5; }
+  .pal-msg button { margin-top: 10px; }
+
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--faint); }
+  .dot.running, .dot.open { background: var(--ok); }
+  .dot.stopped, .dot.closed { background: var(--danger); }
+  .dot.other, .dot.starting { background: var(--warn); }
+  .badge { display: inline-block; padding: 1px 7px; border-radius: 4px; font-size: 11px; font-weight: 500; flex: 0 0 auto; }
+  .badge.running { background: #14532d; color: #86efac; }
+  .badge.stopped { background: #450a0a; color: #fca5a5; }
+  .badge.other { background: #422006; color: #fcd34d; }
+  .badge.ssm-ok { background: #0c4a6e; color: #7dd3fc; }
+  .badge.ssm-bad { background: #422006; color: #fcd34d; }
+  .badge.ssm-none { background: var(--surface-3); color: var(--muted); }
+
+  /* instance detail */
+  .detail { padding: 10px 8px 4px; display: flex; flex-direction: column; gap: 22px; }
+  .detail-head { display: flex; align-items: flex-start; gap: 12px; }
+  .detail-head h2 { margin: 0; font-size: 17px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .detail-head .grow { flex: 1; }
+  .facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px 20px; }
+  .facts div { min-width: 0; }
+  .facts dt { color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 2px; }
+  .facts dd { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+  .dsec h3 { font-size: 11px; color: var(--faint); text-transform: uppercase; letter-spacing: .07em; margin: 0 0 10px; }
+  .dsec .btns { display: flex; gap: 10px; flex-wrap: wrap; }
+  .dsec .hint { color: var(--faint); font-size: 12px; margin-top: 8px; }
+  /* small layout icon: which half the new session takes */
+  .si { display: inline-block; flex: 0 0 20px; width: 20px; height: 14px; border: 1.5px solid currentColor; border-radius: 3px;
+        position: relative; vertical-align: -2px; margin-right: 8px; opacity: .9; }
+  .si::after { content: ''; position: absolute; background: currentColor; opacity: .55; }
+  .si.right::after { top: 0; bottom: 0; right: 0; width: 50%; }
+  .si.down::after { left: 0; right: 0; bottom: 0; height: 50%; }
+  .si.newtab::after { left: 0; right: 0; top: 0; height: 3px; opacity: .8; }
+  .dsec .btns button { display: inline-flex; align-items: center; padding: 8px 14px; }
+  .tunnel-form { display: grid; grid-template-columns: 140px 1fr 140px auto; gap: 10px; }
+
+  /* tunnels */
+  .tunnel { padding: 10px 0; border-bottom: 1px solid var(--border); display: flex; gap: 10px; align-items: flex-start; }
+  .tunnel:last-child { border-bottom: none; }
+  .tunnel .dot { margin-top: 5px; }
+  .tunnel .tmain { flex: 1; min-width: 0; }
+  .tunnel code { color: #93c5fd; cursor: copy; }
+  .tunnel .sub { color: var(--faint); font-size: 12px; margin-top: 2px; word-break: break-word; }
+  .tunnel .sub.error { color: #fca5a5; }
+
+  /* toasts */
+  #toasts { position: fixed; right: 16px; bottom: 16px; z-index: 50; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
+  .toast {
+    max-width: 440px; padding: 10px 14px; border-radius: var(--radius); background: var(--surface-2);
+    border: 1px solid var(--border-strong); box-shadow: 0 8px 24px #0008; cursor: pointer; word-break: break-word;
+  }
+  .toast.error { border-color: #991b1b; background: #2a1215; color: #fecaca; }
+  .toast.ok { border-color: #166534; }
+</style>
+</head>
+<body>
+  <header id="topbar">
+    <div class="brand">AWS <span>SSM</span></div>
+    <div class="seg" id="modeSeg">
+      <button data-mode="profile">Local profile</button>
+      <button data-mode="sso">SSO</button>
+    </div>
+    <button id="accountBtn" class="chip" title="Choose profile / role">
+      <span class="chip-label">Account</span>
+      <span class="chip-value" id="accountName">—</span>
+      <span class="caret">▾</span>
+    </button>
+    <select id="region" title="Region"></select>
+    <button id="searchBtn" class="search-trigger" title="Search instances">
+      <span>Search instances…</span><kbd>Ctrl K</kbd>
+    </button>
+    <div class="spacer"></div>
+    <button id="tunnelsBtn" class="chip" title="Open tunnels">⇄ Tunnels <span id="tunnelCount" class="count">0</span></button>
+    <button id="helpBtn" class="ghost" title="Keyboard shortcuts">?</button>
+  </header>
+
+  <div id="tunnelsPop" class="popover" hidden>
+    <h3>Tunnels</h3>
+    <div id="tunnelList"></div>
+    <p class="note">To open one: search for the instance and open its detail view with <kbd>Tab</kbd>.
+      Tunnels stay open even if you close this browser tab.</p>
+  </div>
+
+  <div id="helpPop" class="popover" hidden>
+    <h3>Shortcuts</h3>
+    <div class="shortcuts">
+      <div class="group">Search</div>
+      <kbd>Ctrl K</kbd><span>Open search (<kbd>Ctrl Shift K</kbd> from a terminal)</span>
+      <kbd>↑ ↓</kbd><span>Move through the list</span>
+      <kbd>Enter</kbd><span>Connect in a new tab</span>
+      <kbd>Ctrl Enter</kbd><span>Connect in a split to the right</span>
+      <kbd>Ctrl Shift Enter</kbd><span>Connect in a split below</span>
+      <kbd>Tab</kbd><span>Details: tunnel, start / stop / reboot</span>
+      <kbd>Esc</kbd><span>Back / close</span>
+      <div class="group">Terminal</div>
+      <kbd>Ctrl Shift E</kbd><span>Duplicate the pane to the right</span>
+      <kbd>Ctrl Shift O</kbd><span>Duplicate the pane below</span>
+      <kbd>Ctrl Shift X</kbd><span>Close the pane</span>
+      <kbd>Alt ← ↑ → ↓</kbd><span>Move between panes</span>
+      <kbd>Ctrl Shift B</kbd><span>Broadcast: type into all panes</span>
+    </div>
+    <p class="note">Drag the dividers to resize; double-click resets them to 50/50.</p>
+  </div>
+
+  <div id="tabbar" style="display:none">
+    <div id="tabs"></div>
+    <div id="tabTools">
+      <button id="splitRowBtn" title="Duplicate the active pane to the right (Ctrl+Shift+E)">⇥ Split</button>
+      <button id="splitColBtn" title="Duplicate the active pane below (Ctrl+Shift+O)">⇣ Split</button>
+      <button id="broadcastBtn" title="Type into all panes in this tab (Ctrl+Shift+B)">Broadcast</button>
+    </div>
+  </div>
+
+  <main id="terminals">
+    <div id="empty"><div class="home" id="home"></div></div>
+  </main>
+
+  <div id="overlay" hidden>
+    <div id="palette" role="dialog" aria-modal="true">
+      <div class="pal-head" id="palHead">
+        <input id="palInput" type="search" autocomplete="off" spellcheck="false" />
+        <div class="filters" id="palFilters"></div>
+      </div>
+      <div class="pal-body" id="palBody"></div>
+      <div class="pal-foot" id="palFoot"></div>
+    </div>
+  </div>
+
+  <div id="toasts"></div>
+
+  <datalist id="portPresets">
+    <option value="22">SSH</option>
+    <option value="80">HTTP</option>
+    <option value="443">HTTPS</option>
+    <option value="3389">RDP</option>
+    <option value="3306">MySQL</option>
+    <option value="5432">PostgreSQL</option>
+    <option value="1433">SQL Server</option>
+    <option value="6379">Redis</option>
+    <option value="27017">MongoDB</option>
+  </datalist>
+
+<script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+
+// h('div', {class: 'x', onclick: fn, title: '...'}, 'text', otherEl): builds DOM
+// without innerHTML (instance names/tags come from AWS and aren't trusted).
+function h(tag, attrs, ...children) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v == null || v === false) continue;
+    if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
+    else if (k === 'class') el.className = v;
+    else if (k === 'text') el.textContent = v;
+    else if (k in el && k !== 'list') el[k] = v;
+    else el.setAttribute(k, v);
+  }
+  for (const c of children.flat()) {
+    if (c == null || c === false) continue;
+    el.append(c instanceof Node ? c : document.createTextNode(String(c)));
+  }
+  return el;
+}
+
+const accountBtn = $('accountBtn');
+const accountName = $('accountName');
+const regionSel = $('region');
+const searchBtn = $('searchBtn');
+const tunnelsBtn = $('tunnelsBtn');
+const tunnelCount = $('tunnelCount');
+const tunnelsPop = $('tunnelsPop');
+const tunnelList = $('tunnelList');
+const helpBtn = $('helpBtn');
+const helpPop = $('helpPop');
+const overlay = $('overlay');
+const palHead = $('palHead');
+const palInput = $('palInput');
+const palFilters = $('palFilters');
+const palBody = $('palBody');
+const palFoot = $('palFoot');
+const homeEl = $('home');
+const toastsEl = $('toasts');
+const tabsDiv = $('tabs');
+const terminalsDiv = $('terminals');
+const emptyDiv = $('empty');
+const tabToolsDiv = $('tabbar'); // the whole tab bar is hidden when there are no sessions
+const splitRowBtn = $('splitRowBtn');
+const splitColBtn = $('splitColBtn');
+const broadcastBtn = $('broadcastBtn');
+
+const REGIONS = [
+  'us-east-1', 'us-east-2', 'us-west-1', 'us-west-2',
+  'ca-central-1', 'sa-east-1', 'mx-central-1',
+  'eu-west-1', 'eu-west-2', 'eu-west-3', 'eu-central-1', 'eu-central-2',
+  'eu-north-1', 'eu-south-1', 'eu-south-2',
+  'ap-south-1', 'ap-south-2', 'ap-southeast-1', 'ap-southeast-2',
+  'ap-southeast-3', 'ap-southeast-4', 'ap-northeast-1', 'ap-northeast-2',
+  'ap-northeast-3', 'ap-east-1', 'me-south-1', 'me-central-1',
+  'af-south-1', 'il-central-1',
+];
+
+// ---- preferences (per browser) --------------------------------------------
+// If localStorage is unavailable (private mode, blocked) the app still works,
+// it just doesn't remember anything.
+
+function loadPref(key, fallback) {
+  try {
+    const v = JSON.parse(localStorage.getItem('aws-ssm-web.' + key));
+    return v == null ? fallback : v;
+  } catch {
+    return fallback;
+  }
+}
+function savePref(key, value) {
+  try { localStorage.setItem('aws-ssm-web.' + key, JSON.stringify(value)); } catch {}
+}
+
+let favProfiles = loadPref('favProfiles', []);
+let favInstances = loadPref('favInstances', []); // [{key, auth, authLabel, region, id, name}]
+let recentInstances = loadPref('recentInstances', []);
+const MAX_RECENTS = 8;
+const last = loadPref('last', {});
+
+// ---- state ----------------------------------------------------------------
+
+let authMode = last.mode === 'sso' ? 'sso' : 'profile';
+let currentProfile = last.profile || null;
+let currentRoleArn = null;
+let region = REGIONS.includes(last.region) ? last.region : 'us-east-1';
+let profiles = [];
+let roles = []; // [{value: arn, label}]
+let ssoLogged = false;
+let ssoBusy = false;
+
+// Instances of the current account/region. ctx = the auth they were listed with:
+// connect / start / stop use that ctx, never the "live" selection.
+const inst = { ctx: null, list: [], loading: false, error: '' };
+
+let tabs = []; // {id, tabEl, titleEl, rootEl, root, focused, broadcast}
+let activeTabId = null;
+let seq = 0;
+
+function saveLast() {
+  savePref('last', { mode: authMode, profile: currentProfile, region });
+}
+
+// ---- toasts ---------------------------------------------------------------
+
+function toast(msg, type) {
+  const el = h('div', { class: `toast ${type || ''}`, title: 'Click to dismiss', onclick: () => el.remove() }, msg);
+  toastsEl.appendChild(el);
+  setTimeout(() => el.remove(), type === 'error' ? 10000 : 4000);
+}
+
+// ---- helpers --------------------------------------------------------------
+
+// Relevance of a result: -1 if it doesn't match every word. A match in the
+// name (especially at the start of a word in the name) weighs more than in
+// the other fields: "web 2" should prefer web-prod-2 over a web-prod-1
+// whose instance id happens to contain a "2".
+function matchScore(primary, secondary, query) {
+  const name = (primary || '').toLowerCase();
+  const rest = (secondary || '').toLowerCase();
+  let score = 0;
+  for (const w of query.toLowerCase().split(/\s+/).filter(Boolean)) {
+    const at = name.indexOf(w);
+    if (at >= 0) score += 3 + (at === 0 || /[^a-z0-9]/.test(name[at - 1]) ? 2 : 0);
+    else if (rest.includes(w)) score += 1;
+    else return -1;
+  }
+  return score;
+}
+
+// Filters and, if there's a query, sorts by relevance (stable: ties keep the original order).
+function rank(list, fields, query) {
+  const scored = list
+    .map((it, n) => ({ it, n, score: matchScore(...fields(it), query) }))
+    .filter(x => x.score >= 0);
+  if (query.trim()) scored.sort((a, b) => b.score - a.score || a.n - b.n);
+  return scored.map(x => x.it);
+}
+
+function stateGroup(state) {
+  if (state === 'running') return 'running';
+  if (state === 'stopped') return 'stopped';
+  return 'other';
+}
+
+const STATE_ORDER = { running: 0, other: 1, stopped: 2 };
+
+const SSM_BADGES = {
+  Online: { cls: 'ssm-ok', text: 'SSM', title: 'SSM agent online' },
+  ConnectionLost: { cls: 'ssm-bad', text: 'SSM ✗', title: 'SSM agent lost its connection: the session will probably fail' },
+  Inactive: { cls: 'ssm-bad', text: 'SSM ✗', title: 'SSM agent inactive: the session will probably fail' },
+  NotRegistered: { cls: 'ssm-none', text: 'no SSM', title: 'Not registered in SSM (no agent, no IAM role, or no route to the SSM endpoints)' },
+};
+
+function stateBadge(i) {
+  return h('span', { class: `badge ${stateGroup(i.state)}`, text: i.state });
+}
+
+function ssmBadge(i) {
+  const b = SSM_BADGES[i.ssm];
+  return b ? h('span', { class: `badge ${b.cls}`, text: b.text, title: b.title }) : null;
+}
+
+function currentAuth() {
+  if (authMode === 'sso') return currentRoleArn ? { roleArn: currentRoleArn } : null;
+  return currentProfile ? { profile: currentProfile } : null;
+}
+
+function makeCtx() {
+  const auth = currentAuth();
+  return auth ? { auth, authParams: new URLSearchParams(auth).toString(), region } : null;
+}
+
+function authKey(auth) {
+  return auth.profile ? `p:${auth.profile}` : `r:${auth.roleArn}`;
+}
+
+function ctxKey(ctx) {
+  return ctx ? `${authKey(ctx.auth)}|${ctx.region}` : '';
+}
+
+function authLabel(auth) {
+  if (auth.profile) return auth.profile;
+  const r = roles.find(x => x.value === auth.roleArn);
+  return r ? r.label : auth.roleArn.replace(/^arn:aws:iam::/, '');
+}
+
+function instMeta(i) {
+  return [i.id, i.privateIp, i.type, i.az, i.asg && `ASG ${i.asg}`].filter(Boolean).join(' · ');
+}
+
+// ---- account / region / mode --------------------------------------------
+
+for (const r of REGIONS) regionSel.appendChild(h('option', { value: r, text: r }));
+regionSel.value = region;
+
+function renderTopbar() {
+  for (const b of document.querySelectorAll('#modeSeg button')) {
+    b.classList.toggle('active', b.dataset.mode === authMode);
+  }
+  const auth = currentAuth();
+  if (auth) accountName.textContent = authLabel(auth);
+  else if (authMode === 'sso') accountName.textContent = ssoLogged ? 'Choose role' : 'Sign in with SSO';
+  else accountName.textContent = 'Choose profile';
+}
+
+function setMode(mode) {
+  if (mode === authMode) return;
+  authMode = mode;
+  saveLast();
+  renderTopbar();
+  renderHome();
+  if (!currentAuth()) openPalette('accounts');
+}
+
+for (const b of document.querySelectorAll('#modeSeg button')) {
+  b.addEventListener('click', () => setMode(b.dataset.mode));
+}
+
+regionSel.addEventListener('change', () => {
+  region = regionSel.value;
+  saveLast();
+  if (pal.mode === 'instances') loadInstances();
+});
+
+function selectAccount(value) {
+  if (authMode === 'sso') currentRoleArn = value;
+  else currentProfile = value;
+  saveLast();
+  renderTopbar();
+  renderHome();
+  openPalette('instances');
+}
+
+async function loadProfiles() {
+  try {
+    const res = await fetch('/api/profiles');
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'unknown error');
+    profiles = data.profiles;
+    if (currentProfile && !profiles.includes(currentProfile)) currentProfile = null;
+  } catch (err) {
+    toast('Error loading profiles: ' + err.message, 'error');
+  }
+  renderTopbar();
+  renderHome();
+  if (pal.mode === 'accounts') renderPalette();
+}
+
+function setRoles(list) {
+  roles = list.map(r => ({
+    value: r.arn,
+    label: `${r.accountName || r.accountId} (${r.accountId}) — ${r.roleName}`,
+  }));
+  ssoLogged = true;
+}
+
+// The server keeps the SSO session in memory: if already signed in, resume it.
+async function checkSso() {
+  try {
+    const res = await fetch('/api/sso/roles');
+    if (res.ok) setRoles((await res.json()).roles);
+  } catch {}
+  renderTopbar();
+}
+
+async function ssoLogin() {
+  ssoBusy = true;
+  renderPalette();
+  toast("A browser window opened for your identity provider's sign-in — complete login + MFA there.");
+  try {
+    const res = await fetch('/api/sso/login', { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'login error');
+    setRoles(data.roles);
+    toast(`Login SSO OK — ${data.roles.length} roles`, 'ok');
+  } catch (err) {
+    toast('SSO error: ' + err.message, 'error');
+  } finally {
+    ssoBusy = false;
+    renderTopbar();
+    if (pal.mode === 'accounts') renderPalette();
+  }
+}
+
+async function ssoLogout() {
+  try { await fetch('/api/sso/logout', { method: 'POST' }); } catch {}
+  ssoLogged = false;
+  roles = [];
+  currentRoleArn = null;
+  if (inst.ctx && inst.ctx.auth.roleArn) Object.assign(inst, { ctx: null, list: [], error: '' });
+  renderTopbar();
+  renderPalette();
+  toast('Signed out of SSO');
+}
+
+function toggleFavProfile(p) {
+  favProfiles = favProfiles.includes(p) ? favProfiles.filter(x => x !== p) : [...favProfiles, p];
+  savePref('favProfiles', favProfiles);
+  renderPalette();
+}
+
+// ---- instances ------------------------------------------------------------
+
+async function fetchInstances(ctx) {
+  const res = await fetch(`/api/instances?${ctx.authParams}&region=${encodeURIComponent(ctx.region)}`);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'unknown error');
+  // running first, then the rest (pending, stopping...), stopped last
+  return data.instances.slice().sort((a, b) =>
+    STATE_ORDER[stateGroup(a.state)] - STATE_ORDER[stateGroup(b.state)] ||
+    (a.name || a.id).localeCompare(b.name || b.id)
+  );
+}
+
+async function loadInstances() {
+  const ctx = makeCtx();
+  stopPolling();
+  Object.assign(inst, { ctx, list: [], error: '', loading: !!ctx });
+  renderPalette();
+  if (!ctx) return;
+  try {
+    const list = await fetchInstances(ctx);
+    if (inst.ctx === ctx) inst.list = list;
+  } catch (err) {
+    if (inst.ctx === ctx) inst.error = err.message;
+  } finally {
+    if (inst.ctx === ctx) inst.loading = false;
+    renderPalette();
+  }
+}
+
+// Re-lists without switching context (to follow a start/stop/reboot).
+async function refreshInstancesQuietly() {
+  const ctx = inst.ctx;
+  if (!ctx) return;
+  const fresh = await fetchInstances(ctx);
+  if (ctx !== inst.ctx) return;
+  inst.list = fresh;
+  if (pal.detail && pal.detail.ctx === ctx) {
+    pal.detail.inst = fresh.find(i => i.id === pal.detail.inst.id) || pal.detail.inst;
+  }
+  renderPalette();
+}
+
+let pollTimer = null;
+
+function stopPolling() {
+  clearTimeout(pollTimer);
+  pollTimer = null;
+}
+
+// Refreshes every 5s until the instance reaches a stable state (max ~5 min).
+function pollUntilStable(instanceId, ctx, tries = 60) {
+  stopPolling();
+  pollTimer = setTimeout(async () => {
+    if (ctx !== inst.ctx) return;
+    try { await refreshInstancesQuietly(); } catch {}
+    const i = inst.list.find(x => x.id === instanceId);
+    const stable = !i || ['running', 'stopped', 'terminated'].includes(i.state);
+    if (i && stable) toast(`${i.name || i.id}: ${i.state}`, 'ok');
+    if (!stable && tries > 1) pollUntilStable(instanceId, ctx, tries - 1);
+  }, 5000);
+}
+
+const ACTION_TEXT = {
+  start: { verb: 'Start', doing: 'Starting' },
+  stop: { verb: 'Stop', doing: 'Stopping' },
+  reboot: { verb: 'Reboot', doing: 'Rebooting' },
+};
+
+async function instanceAction(action, i, ctx) {
+  const t = ACTION_TEXT[action];
+  const label = `${i.name || '(unnamed)'} (${i.id})`;
+  const asgWarn = i.asg && action !== 'reboot'
+    ? `\n\nWARNING: it belongs to the ASG "${i.asg}"; autoscaling may replace it or start it again.`
+    : '';
+  if (!confirm(`${t.verb} ${label}?\n\nAccount: ${authLabel(ctx.auth)}\nRegion: ${ctx.region}${asgWarn}`)) return;
+  try {
+    const res = await fetch(`/api/instances/${encodeURIComponent(i.id)}/${action}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...ctx.auth, region: ctx.region }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'unknown error');
+    if (data.state) i.state = data.state;
+    toast(`${t.doing} ${label}…`);
+    renderPalette();
+    pollUntilStable(i.id, ctx);
+  } catch (err) {
+    toast(`Failed to ${t.verb.toLowerCase()} ${label}: ${err.message}`, 'error');
+  }
+}
+
+// ---- favorites and recents ----------------------------------------------
+
+function entryKey(ctx, id) {
+  return `${ctxKey(ctx)}|${id}`;
+}
+
+function makeEntry(ctx, i) {
+  return {
+    key: entryKey(ctx, i.id),
+    auth: ctx.auth,
+    authLabel: authLabel(ctx.auth),
+    region: ctx.region,
+    id: i.id,
+    name: i.name || '',
+  };
+}
+
+function isFavorite(ctx, id) {
+  return !!ctx && favInstances.some(f => f.key === entryKey(ctx, id));
+}
+
+function toggleFavorite(ctx, i) {
+  const key = entryKey(ctx, i.id);
+  favInstances = favInstances.some(f => f.key === key)
+    ? favInstances.filter(f => f.key !== key)
+    : [...favInstances, makeEntry(ctx, i)];
+  savePref('favInstances', favInstances);
+  renderPalette();
+  renderHome();
+}
+
+function removeFavorite(key) {
+  favInstances = favInstances.filter(f => f.key !== key);
+  savePref('favInstances', favInstances);
+  renderPalette();
+  renderHome();
+}
+
+function removeRecent(key) {
+  recentInstances = recentInstances.filter(r => r.key !== key);
+  savePref('recentInstances', recentInstances);
+  renderPalette();
+  renderHome();
+}
+
+function addRecent(ctx, i) {
+  const entry = makeEntry(ctx, i);
+  recentInstances = [entry, ...recentInstances.filter(r => r.key !== entry.key)].slice(0, MAX_RECENTS);
+  savePref('recentInstances', recentInstances);
+  renderHome();
+}
+
+function entryTarget(entry) {
+  return {
+    authParams: new URLSearchParams(entry.auth).toString(),
+    region: entry.region,
+    instance: { id: entry.id, name: entry.name },
+  };
+}
+
+// splitDir null = new tab; 'row'/'column' = split the active pane.
+// With an SSO role the SSO session must be active (otherwise the error shows
+// up in the terminal).
+function connect(target, splitDir) {
+  addRecent({ auth: Object.fromEntries(new URLSearchParams(target.authParams)), region: target.region }, target.instance);
+  closePalette(false);
+  const tab = activeTab();
+  if (splitDir && tab && tab.focused) splitPane(tab.focused, splitDir, target);
+  else newTab(target);
+}
+
+function connectInstance(i, ctx, splitDir) {
+  connect({ authParams: ctx.authParams, region: ctx.region, instance: i }, splitDir);
+}
+
+// ---- home screen ----------------------------------------------------------
+
+function homeCard(entry, { fav }) {
+  return h('div', { class: 'card', title: 'Open SSM session', onclick: () => connect(entryTarget(entry), null) },
+    h('button', {
+      class: `x ${fav ? 'fav' : ''}`,
+      text: fav ? '★' : '✕',
+      title: fav ? 'Remove from favorites' : 'Remove from recents',
+      onclick: (e) => { e.stopPropagation(); fav ? removeFavorite(entry.key) : removeRecent(entry.key); },
+    }),
+    h('div', { class: 'name', text: entry.name || entry.id }),
+    h('div', { class: 'sub', text: `${entry.id} · ${entry.region}` }),
+    h('div', { class: 'sub', text: entry.authLabel }));
+}
+
+function renderHome() {
+  const auth = currentAuth();
+  const recents = recentInstances.filter(r => !favInstances.some(f => f.key === r.key));
+  homeEl.replaceChildren(...[
+    h('div', {},
+      h('h1', { text: 'Open a session' }),
+      h('p', { class: 'lead', text: auth
+        ? `Account ${authLabel(auth)} · ${region}. Search for an instance to connect, open a tunnel, or start / stop it.`
+        : 'Choose a local profile (or sign in with SSO) and search for an instance.' })),
+    h('div', { class: 'cta' },
+      h('button', { class: 'primary', onclick: () => openPalette(auth ? 'instances' : 'accounts') },
+        auth ? 'Search instances' : (authMode === 'sso' && !ssoLogged ? 'Sign in with SSO' : 'Choose account'),
+        h('kbd', { text: 'Ctrl K' })),
+      auth && h('button', { onclick: () => openPalette('accounts'), text: 'Switch account' })),
+    favInstances.length && h('section', {},
+      h('h2', { text: 'Favorites' }),
+      h('div', { class: 'cards' }, favInstances.map(f => homeCard(f, { fav: true })))),
+    recents.length && h('section', {},
+      h('h2', { text: 'Recent' }),
+      h('div', { class: 'cards' }, recents.map(r => homeCard(r, { fav: false })))),
+    !favInstances.length && !recents.length && h('p', { class: 'lead',
+      text: 'Tip: mark an instance with ☆ in search to keep it handy here.' }),
+  ].filter(Boolean));
+}
+
+// ---- palette --------------------------------------------------------------
+// modes: 'instances' (search/connect), 'accounts' (profile or SSO role),
+// 'detail' (one instance: connect, tunnel, power).
+
+const pal = { mode: null, items: [], index: 0, stateFilter: '', detail: null, returnFocus: true };
+
+function openPalette(mode) {
+  closePopovers();
+  overlay.hidden = false;
+  pal.mode = mode;
+  pal.index = 0;
+  pal.detail = null;
+  palInput.value = '';
+  if (mode === 'instances' && makeCtx() && ctxKey(inst.ctx) !== ctxKey(makeCtx())) {
+    loadInstances();
+  } else {
+    renderPalette();
+  }
+  palInput.focus();
+}
+
+function closePalette(refocus = true) {
+  overlay.hidden = true;
+  pal.mode = null;
+  pal.detail = null;
+  const tab = activeTab();
+  if (refocus && tab && tab.focused) focusPane(tab.focused);
+}
+
+function openDetail(i, ctx) {
+  pal.mode = 'detail';
+  pal.detail = { inst: i, ctx };
+  renderPalette();
+}
+
+function backFromDetail() {
+  pal.mode = 'instances';
+  pal.detail = null;
+  renderPalette();
+  palInput.focus();
+}
+
+function setHighlight(index) {
+  if (!pal.items.length) return;
+  pal.index = (index + pal.items.length) % pal.items.length;
+  pal.items.forEach((it, n) => it.el.classList.toggle('active', n === pal.index));
+  pal.items[pal.index].el.scrollIntoView({ block: 'nearest' });
+}
+
+// it = {el, run(splitDir), detail?()}
+function addItem(it) {
+  const n = pal.items.length;
+  pal.items.push(it);
+  it.el.addEventListener('mousemove', () => { if (pal.index !== n) setHighlight(n); });
+  // keep clicks on rows / buttons from stealing focus from the search input
+  it.el.addEventListener('mousedown', (e) => e.preventDefault());
+  // click = details (all options); Enter = connect directly
+  it.el.addEventListener('click', () => (it.detail ? it.detail() : it.run(null)));
+  palBody.appendChild(it.el);
+}
+
+function section(title) {
+  palBody.appendChild(h('div', { class: 'pal-section', text: title }));
+}
+
+function message(text, opts = {}) {
+  palBody.appendChild(h('div', { class: `pal-msg ${opts.error ? 'error' : ''}` },
+    h('div', { text }), opts.button));
+}
+
+function iconBtn(text, title, fn, cls) {
+  return h('button', { class: cls, text, title, onclick: (e) => { e.stopPropagation(); fn(); } });
+}
+
+function renderPalette() {
+  if (!pal.mode) return;
+  pal.items = [];
+  palBody.replaceChildren();
+  palFilters.replaceChildren();
+  palHead.style.display = pal.mode === 'detail' ? 'none' : '';
+  if (pal.mode === 'instances') renderInstancesMode();
+  else if (pal.mode === 'accounts') renderAccountsMode();
+  else if (pal.mode === 'detail') renderDetailMode();
+  palFilters.style.display = palFilters.childElementCount ? '' : 'none';
+  if (pal.items.length) setHighlight(Math.min(pal.index, pal.items.length - 1));
+}
+
+function footer(...parts) {
+  palFoot.replaceChildren(...parts.filter(Boolean).map(p => (typeof p === 'string' ? h('span', { text: p }) : p)));
+}
+
+function kbdHint(keys, text) {
+  return h('span', {}, h('kbd', { text: keys }), ' ', text);
+}
+
+function renderInstancesMode() {
+  const ctx = makeCtx();
+  palInput.placeholder = 'Search by name, id, IP, type, ASG…';
+  const q = palInput.value.trim();
+
+  for (const [value, label] of [['', 'All'], ['running', 'running'], ['stopped', 'stopped'], ['other', 'other']]) {
+    palFilters.appendChild(h('button', {
+      class: pal.stateFilter === value ? 'active' : '',
+      text: label,
+      onclick: () => { pal.stateFilter = value; pal.index = 0; renderPalette(); palInput.focus(); },
+    }));
+  }
+  palFilters.appendChild(h('button', {
+    class: 'ctx',
+    style: 'border:none;background:transparent',
+    title: 'Switch account',
+    text: ctx ? `${authLabel(ctx.auth)} · ${ctx.region} ▾` : 'Choose account ▾',
+    onclick: () => openPalette('accounts'),
+  }));
+
+  footer(kbdHint('↑↓', 'navigate'), kbdHint('Enter', 'connect'), kbdHint('Ctrl Enter', 'split ⇥'),
+    kbdHint('Ctrl Shift Enter', 'split ⇣'), kbdHint('Click / Tab', 'details'), h('span', { class: 'grow' }), kbdHint('Esc', 'close'));
+
+  // With a query, the current account's instances come first, and favorites /
+  // recents only keep those from other accounts (this one's are already listed).
+  const entryFields = (e) => [e.name, `${e.id} ${e.authLabel} ${e.region}`];
+  const here = ctxKey(inst.ctx);
+  const fromHere = (e) => q && inst.ctx && !inst.error && e.key.startsWith(here + '|');
+  const favs = rank(favInstances.filter(f => !fromHere(f)), entryFields, q);
+  const recents = rank(recentInstances.filter(r => !favInstances.some(f => f.key === r.key) && !fromHere(r)), entryFields, q)
+    .slice(0, q ? MAX_RECENTS : 4);
+
+  const entryRow = (e, fav) => ({
+    el: h('div', { class: 'prow' },
+      h('span', { class: 'lead-icon', text: fav ? '★' : '↺' }),
+      h('div', { class: 'pmain' },
+        h('div', { class: 'pname' }, h('span', { class: 'txt', text: e.name || e.id })),
+        h('div', { class: 'pmeta', text: `${e.id} · ${e.authLabel} · ${e.region}` })),
+      h('div', { class: 'pactions' },
+        fav ? iconBtn('★', 'Remove from favorites', () => removeFavorite(e.key), 'fav')
+          : iconBtn('✕', 'Remove from recents', () => removeRecent(e.key)),
+        h('kbd', { class: 'enter-hint', text: '⏎' }))),
+    run: (splitDir) => connect(entryTarget(e), splitDir),
+    // if it's from the listed account/region we have its data: click opens the details
+    detail: entryInstance(e) && (() => openDetail(entryInstance(e), inst.ctx)),
+  });
+
+  const renderEntries = () => {
+    if (favs.length) {
+      section(q ? 'Favorites from other accounts' : 'Favorites');
+      favs.forEach(f => addItem(entryRow(f, true)));
+    }
+    if (recents.length) {
+      section(q ? 'Recent from other accounts' : 'Recent');
+      recents.forEach(r => addItem(entryRow(r, false)));
+    }
+  };
+  if (!q) renderEntries();
+  renderCurrentInstances(ctx, q);
+  if (q) renderEntries();
+}
+
+function renderCurrentInstances(ctx, q) {
+  if (!ctx) {
+    section('Instances');
+    message(authMode === 'sso' && !ssoLogged ? 'Sign in with SSO to list instances.' : 'Choose an account to list its instances.',
+      { button: h('button', { class: 'primary', text: 'Choose account', onclick: () => openPalette('accounts') }) });
+    return;
+  }
+  const visible = rank(
+    inst.list.filter(i => !pal.stateFilter || stateGroup(i.state) === pal.stateFilter),
+    (i) => [i.name, [i.id, i.privateIp, i.type, i.az, i.asg, i.platform, i.state].join(' ')],
+    q);
+  section(inst.loading ? 'Instances · loading…' : `Instances · ${visible.length}${visible.length !== inst.list.length ? ` of ${inst.list.length}` : ''}`);
+  if (inst.error) {
+    message(inst.error, { error: true, button: h('button', { text: 'Retry', onclick: loadInstances }) });
+  } else if (!inst.loading && !visible.length) {
+    message(inst.list.length ? 'No instances match the filter.' : 'No instances in this account / region.');
+  }
+  for (const i of visible) {
+    const fav = isFavorite(inst.ctx, i.id);
+    const c = inst.ctx;
+    addItem({
+      el: h('div', { class: 'prow' },
+        h('span', { class: 'lead-icon' }, h('span', { class: `dot ${stateGroup(i.state)}` })),
+        h('div', { class: 'pmain' },
+          h('div', { class: 'pname' }, h('span', { class: 'txt', text: i.name || '(unnamed)' }), stateBadge(i), ssmBadge(i)),
+          h('div', { class: 'pmeta', text: instMeta(i) })),
+        h('div', { class: 'pactions' },
+          iconBtn(fav ? '★' : '☆', fav ? 'Remove from favorites' : 'Add to favorites', () => toggleFavorite(c, i), fav ? 'fav' : ''),
+          h('kbd', { class: 'enter-hint', text: i.state === 'running' ? '⏎' : 'Tab' }))),
+      // if it isn't running, Enter opens the details (so it can be started)
+      run: (splitDir) => (i.state === 'running' ? connectInstance(i, c, splitDir) : openDetail(i, c)),
+      detail: () => openDetail(i, c),
+    });
+  }
+}
+
+function entryInstance(e) {
+  if (!inst.ctx || !e.key.startsWith(ctxKey(inst.ctx) + '|')) return null;
+  return inst.list.find(i => i.id === e.id) || null;
+}
+
+function renderAccountsMode() {
+  const sso = authMode === 'sso';
+  palInput.placeholder = sso ? 'Search account / role…' : 'Search profiles…';
+  const q = palInput.value.trim();
+  footer(kbdHint('↑↓', 'navigate'), kbdHint('Enter', 'select'), h('span', { class: 'grow' }),
+    sso && ssoLogged && h('button', { class: 'ghost', style: 'padding:0 6px;font-size:11px', text: 'Sign out of SSO', onclick: ssoLogout }),
+    kbdHint('Esc', 'close'));
+
+  if (sso && !ssoLogged) {
+    section('SSO (SAML)');
+    message('A window opens in a separate, dedicated browser profile (it doesn\'t touch your regular browser). ' +
+      'The first time you sign in with your identity provider account (+ MFA); after that the session is kept in that profile. Configured with SSO_LOGIN_URL on the server.',
+      { button: h('button', { class: 'primary', disabled: ssoBusy, text: ssoBusy ? 'Waiting for sign-in…' : 'Sign in with SSO', onclick: ssoLogin }) });
+    return;
+  }
+
+  const current = sso ? currentRoleArn : currentProfile;
+  let list = sso
+    ? roles
+    : [...profiles].sort((a, b) => favProfiles.includes(b) - favProfiles.includes(a)).map(p => ({ value: p, label: p }));
+  list = rank(list, (it) => [it.label, ''], q);
+  section(sso ? `Roles · ${list.length}` : `Profiles · ${list.length}`);
+  if (!list.length) message('Nothing matches your search.');
+  for (const it of list) {
+    const fav = !sso && favProfiles.includes(it.value);
+    addItem({
+      el: h('div', { class: 'prow' },
+        h('span', { class: 'lead-icon', text: it.value === current ? '●' : '' }),
+        h('div', { class: 'pmain' }, h('div', { class: 'pname' }, h('span', { class: 'txt', text: it.label }))),
+        h('div', { class: 'pactions' },
+          !sso && iconBtn(fav ? '★' : '☆', fav ? 'Remove from favorites' : 'Pin to top', () => toggleFavProfile(it.value), fav ? 'fav' : ''),
+          h('kbd', { class: 'enter-hint', text: '⏎' }))),
+      run: () => selectAccount(it.value),
+    });
+  }
+  // start on the current account
+  const idx = list.findIndex(it => it.value === current);
+  if (idx >= 0 && !q) pal.index = idx;
+}
+
+function renderDetailMode() {
+  const { inst: i, ctx } = pal.detail;
+  const running = i.state === 'running';
+  const fav = isFavorite(ctx, i.id);
+  footer(kbdHint('Esc', 'back to list'));
+  const tab = activeTab();
+  const target = tab && tab.focused && tab.focused.target.instance;
+
+  const connectBtn = h('button', { class: 'primary', disabled: !running, onclick: () => connectInstance(i, ctx, null) },
+    h('span', { class: 'si newtab' }), 'New tab');
+  const startBtn = h('button', { text: '▶ Start', disabled: i.state !== 'stopped', onclick: () => instanceAction('start', i, ctx) });
+  const fact = (k, v) => v && h('div', {}, h('dt', { text: k }), h('dd', { text: v, title: v }));
+  const remotePort = h('input', { type: 'number', min: 1, max: 65535, placeholder: 'Remote port', list: 'portPresets' });
+  remotePort.setAttribute('list', 'portPresets');
+  const remoteHost = h('input', { type: 'text', autocomplete: 'off', placeholder: 'Remote host (optional)',
+    title: 'To reach something behind the instance (RDS, internal ALB…): the instance acts as a bastion' });
+  const localPort = h('input', { type: 'number', placeholder: 'Local (auto)', title: tunnelPortTitle });
+  const openBtn = h('button', { class: 'primary', text: 'Open tunnel', disabled: !running });
+  const doOpen = () => openTunnel(i, ctx, { remotePort: remotePort.value, remoteHost: remoteHost.value, localPort: localPort.value }, openBtn);
+  openBtn.addEventListener('click', doOpen);
+  for (const el of [remotePort, remoteHost, localPort]) {
+    el.addEventListener('keydown', (e) => { if (e.key === 'Enter' && running) doOpen(); });
+  }
+
+  palBody.appendChild(h('div', { class: 'detail' },
+    h('div', { class: 'detail-head' },
+      h('button', { class: 'ghost', text: '←', title: 'Back (Esc)', onclick: backFromDetail }),
+      h('div', { class: 'grow' },
+        h('h2', {}, h('span', { text: i.name || '(unnamed)' }), stateBadge(i), ssmBadge(i))),
+      h('button', { class: fav ? 'fav' : '', text: fav ? '★ Favorite' : '☆ Favorite', onclick: () => toggleFavorite(ctx, i) })),
+    h('dl', { class: 'facts', style: 'margin:0' },
+      fact('Instance ID', i.id), fact('Private IP', i.privateIp), fact('Type', i.type), fact('AZ', i.az),
+      fact('Platform', i.platform), fact('ASG', i.asg), fact('Account', authLabel(ctx.auth)), fact('Region', ctx.region)),
+    h('div', { class: 'dsec' },
+      h('h3', { text: 'Connect' }),
+      h('div', { class: 'btns' },
+        connectBtn,
+        // splitting only makes sense if a terminal is already open
+        target && h('button', { disabled: !running, title: 'Ctrl+Enter in search', onclick: () => connectInstance(i, ctx, 'row') },
+          h('span', { class: 'si right' }), 'Right'),
+        target && h('button', { disabled: !running, title: 'Ctrl+Shift+Enter in search', onclick: () => connectInstance(i, ctx, 'column') },
+          h('span', { class: 'si down' }), 'Below')),
+      target && running && h('div', { class: 'hint', text: `"Right" / "Below" split the active pane (${target.name || target.id}) and open this instance next to it.` }),
+      running && i.ssm && i.ssm !== 'Online' && h('div', { class: 'hint', text: '⚠ ' + SSM_BADGES[i.ssm].title }),
+      !running && h('div', { class: 'hint', text: 'The instance must be running to connect.' })),
+    h('div', { class: 'dsec' },
+      h('h3', { text: 'Tunnel (port forwarding)' }),
+      h('div', { class: 'tunnel-form' }, remotePort, remoteHost, localPort, openBtn),
+      h('div', { class: 'hint', text: 'localhost:<local port> → instance:<remote port> (or → remote host, using the instance as a bastion).' })),
+    h('div', { class: 'dsec' },
+      h('h3', { text: 'Power' }),
+      h('div', { class: 'btns' },
+        startBtn,
+        h('button', { class: 'danger', text: '■ Stop', disabled: !running, onclick: () => instanceAction('stop', i, ctx) }),
+        h('button', { text: '↻ Reboot', disabled: !running, onclick: () => instanceAction('reboot', i, ctx) })))));
+  // Enter does the obvious thing: connect if running, start if stopped
+  setTimeout(() => (running ? connectBtn : i.state === 'stopped' ? startBtn : palBody).focus(), 0);
+}
+
+palInput.addEventListener('input', () => { pal.index = 0; renderPalette(); });
+
+palInput.addEventListener('keydown', (e) => {
+  const it = pal.items[pal.index];
+  if (e.key === 'ArrowDown') { e.preventDefault(); setHighlight(pal.index + 1); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); setHighlight(pal.index - 1); }
+  else if (e.key === 'Enter' && it) {
+    e.preventDefault();
+    it.run(e.ctrlKey ? (e.shiftKey ? 'column' : 'row') : null);
+  } else if (e.key === 'Tab' && it && it.detail) {
+    e.preventDefault();
+    it.detail();
+  }
+});
+
+overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) closePalette(); });
+
+// ---- tunnels (port forwarding) ------------------------------------------
+
+let tunnelPollTimer = null;
+let tunnelPortTitle = 'Port on your machine. Empty = first free one';
+
+async function loadTunnels() {
+  clearTimeout(tunnelPollTimer);
+  let data;
+  try {
+    const res = await fetch('/api/tunnels');
+    data = await res.json();
+  } catch {
+    return;
+  }
+  const [min, max] = data.portRange;
+  tunnelPortTitle = `Port on your machine, ${min}-${max}. Empty = first free one`;
+  renderTunnels(data.tunnels);
+  // only keep polling while there are tunnels
+  if (data.tunnels.length) tunnelPollTimer = setTimeout(loadTunnels, 3000);
+}
+
+function renderTunnels(list) {
+  const live = list.filter(t => t.status !== 'closed').length;
+  tunnelCount.textContent = live;
+  tunnelCount.classList.toggle('live', live > 0);
+  tunnelList.replaceChildren();
+  if (!list.length) tunnelList.appendChild(h('p', { class: 'note', text: 'No open tunnels.' }));
+  for (const t of list) {
+    const dest = `${t.remoteHost || t.instanceName || t.instanceId}:${t.remotePort}`;
+    const addr = `localhost:${t.localPort}`;
+    tunnelList.appendChild(h('div', { class: 'tunnel' },
+      h('span', { class: `dot ${t.status}`, title: t.status }),
+      h('div', { class: 'tmain' },
+        h('div', {},
+          h('code', { text: addr, title: 'Click to copy', onclick: () => navigator.clipboard?.writeText(addr).then(() => toast(`Copied ${addr}`), () => {}) }),
+          ` → ${dest}`),
+        h('div', { class: `sub ${t.error ? 'error' : ''}`, text: t.error ||
+          `${t.remoteHost ? `via ${t.instanceName || t.instanceId} · ` : ''}${t.status === 'starting' ? 'connecting…' : t.status === 'open' ? 'open' : 'closed'}` })),
+      iconBtn('✕', t.status === 'closed' ? 'Remove from list' : 'Close tunnel', () => closeTunnel(t.id), 'ghost')));
+  }
+}
+
+async function openTunnel(i, ctx, form, btn) {
+  const remotePort = Number(form.remotePort);
+  if (!remotePort) {
+    toast('Enter the tunnel\'s remote port', 'error');
+    return;
+  }
+  btn.disabled = true;
+  try {
+    const res = await fetch('/api/tunnels', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...ctx.auth,
+        region: ctx.region,
+        instanceId: i.id,
+        instanceName: i.name,
+        remotePort,
+        remoteHost: form.remoteHost.trim(),
+        localPort: form.localPort ? Number(form.localPort) : undefined,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'unknown error');
+    toast(`Tunnel open: localhost:${data.tunnel.localPort} → ${data.tunnel.remoteHost || i.name || i.id}:${remotePort}`, 'ok');
+    loadTunnels();
+  } catch (err) {
+    toast('Error opening tunnel: ' + err.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function closeTunnel(id) {
+  try { await fetch(`/api/tunnels/${encodeURIComponent(id)}`, { method: 'DELETE' }); } catch {}
+  loadTunnels();
+}
+
+// ---- popovers -------------------------------------------------------------
+
+function closePopovers() {
+  tunnelsPop.hidden = true;
+  helpPop.hidden = true;
+}
+
+function togglePopover(pop) {
+  const show = pop.hidden;
+  closePopovers();
+  pop.hidden = !show;
+  if (show && pop === tunnelsPop) loadTunnels();
+}
+
+tunnelsBtn.addEventListener('click', (e) => { e.stopPropagation(); togglePopover(tunnelsPop); });
+helpBtn.addEventListener('click', (e) => { e.stopPropagation(); togglePopover(helpPop); });
+document.addEventListener('mousedown', (e) => {
+  if (!tunnelsPop.contains(e.target) && !helpPop.contains(e.target) &&
+      !tunnelsBtn.contains(e.target) && !helpBtn.contains(e.target)) closePopovers();
+});
+
+// ---- panes / tabs ---------------------------------------------------------
+
+function activeTab() {
+  return tabs.find(t => t.id === activeTabId) || null;
+}
+
+function allPanes(node) {
+  return node.type === 'pane' ? [node] : node.children.flatMap(allPanes);
+}
+
+function createPane(tab, target) {
+  const pane = { type: 'pane', id: ++seq, tab, target, parent: null };
+  const el = document.createElement('div');
+  el.className = 'pane';
+  const header = document.createElement('div');
+  header.className = 'pane-header';
+  const title = document.createElement('span');
+  title.className = 'title';
+  title.textContent = `${target.instance.name || '(unnamed)'} · ${target.instance.id}`;
+  title.title = title.textContent;
+  header.appendChild(title);
+  for (const [label, tip, fn] of [
+    ['⇥', 'Duplicate to the right (Ctrl+Shift+E)', () => splitPane(pane, 'row')],
+    ['⇣', 'Duplicate below (Ctrl+Shift+O)', () => splitPane(pane, 'column')],
+    ['✕', 'Close pane (Ctrl+Shift+X)', () => closePane(pane)],
+  ]) {
+    const b = document.createElement('button');
+    b.textContent = label;
+    b.title = tip;
+    b.addEventListener('click', (e) => { e.stopPropagation(); fn(); });
+    header.appendChild(b);
+  }
+  const body = document.createElement('div');
+  body.className = 'pane-body';
+  el.append(header, body);
+  el.addEventListener('mousedown', () => focusPane(pane), true);
+  pane.el = el;
+  pane.body = body;
+  return pane;
+}
+
+// Called only once the pane is in the DOM and visible, so xterm can
+// measure it.
+function startTerminal(pane) {
+  const term = new Terminal({
+    convertEol: true,
+    cursorBlink: true,
+    fontSize: 13,
+    theme: { background: '#0f1115' },
+  });
+  const fitAddon = new FitAddon.FitAddon();
+  term.loadAddon(fitAddon);
+  term.open(pane.body);
+  term.attachCustomKeyEventHandler((e) => handleShortcut(e, pane));
+  term.textarea.addEventListener('focus', () => focusPane(pane, true));
+  pane.term = term;
+  pane.fitAddon = fitAddon;
+
+  const { authParams, region, instance } = pane.target;
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const ws = new WebSocket(`${proto}://${location.host}/ws/ssm?${authParams}&region=${encodeURIComponent(region)}&instanceId=${encodeURIComponent(instance.id)}`);
+  pane.ws = ws;
+
+  ws.addEventListener('open', () => fitPane(pane));
+  ws.addEventListener('message', (ev) => term.write(ev.data));
+  ws.addEventListener('close', () => term.write('\r\n\x1b[33m[connection closed]\x1b[0m\r\n'));
+  ws.addEventListener('error', () => term.write('\r\n\x1b[31m[connection error]\x1b[0m\r\n'));
+
+  term.onData((data) => {
+    const targets = pane.tab.broadcast ? allPanes(pane.tab.root) : [pane];
+    const msg = JSON.stringify({ type: 'input', data });
+    for (const p of targets) {
+      if (p.ws && p.ws.readyState === WebSocket.OPEN) p.ws.send(msg);
+    }
+  });
+
+  let raf = 0;
+  pane.resizeObserver = new ResizeObserver(() => {
+    cancelAnimationFrame(raf);
+    raf = requestAnimationFrame(() => fitPane(pane));
+  });
+  pane.resizeObserver.observe(pane.body);
+}
+
+function fitPane(pane) {
+  // hidden tabs measure 0x0: don't shrink the terminal to nothing
+  if (!pane.term || pane.body.offsetWidth === 0 || pane.body.offsetHeight === 0) return;
+  try { pane.fitAddon.fit(); } catch {}
+  if (pane.ws && pane.ws.readyState === WebSocket.OPEN) {
+    pane.ws.send(JSON.stringify({ type: 'resize', cols: pane.term.cols, rows: pane.term.rows }));
+  }
+}
+
+function disposePane(pane) {
+  try { pane.ws && pane.ws.close(); } catch {}
+  try { pane.resizeObserver && pane.resizeObserver.disconnect(); } catch {}
+  try { pane.term && pane.term.dispose(); } catch {}
+}
+
+function focusPane(pane, fromTerm) {
+  const tab = pane.tab;
+  tab.focused = pane;
+  for (const p of allPanes(tab.root)) p.el.classList.toggle('focused', p === pane);
+  if (!fromTerm && pane.term) pane.term.focus();
+}
+
+function makeDivider(split) {
+  const div = document.createElement('div');
+  div.className = 'divider';
+  div.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    const [a, b] = split.children;
+    const horiz = split.dir === 'row';
+    document.body.classList.add(horiz ? 'drag-col' : 'drag-row');
+    const onMove = (ev) => {
+      const r = split.el.getBoundingClientRect();
+      let ratio = horiz ? (ev.clientX - r.left) / r.width : (ev.clientY - r.top) / r.height;
+      ratio = Math.min(0.9, Math.max(0.1, ratio));
+      a.el.style.flexGrow = ratio;
+      b.el.style.flexGrow = 1 - ratio;
+    };
+    const onUp = () => {
+      document.body.classList.remove('drag-col', 'drag-row');
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  });
+  div.addEventListener('dblclick', () => {
+    for (const c of split.children) c.el.style.flexGrow = 1;
+  });
+  return div;
+}
+
+// Replaces `oldNode` with `newNode` in the tree (and in the DOM if needed).
+function replaceNode(tab, oldNode, newNode) {
+  newNode.parent = oldNode.parent;
+  newNode.el.style.flexGrow = oldNode.el.style.flexGrow || 1;
+  if (oldNode.parent) {
+    const siblings = oldNode.parent.children;
+    siblings[siblings.indexOf(oldNode)] = newNode;
+  } else {
+    tab.root = newNode;
+  }
+  oldNode.el.replaceWith(newNode.el);
+}
+
+// dir 'row' = new pane to the right, 'column' = below.
+// Without a target it duplicates the pane's session (same instance, same auth).
+function splitPane(pane, dir, target) {
+  const tab = pane.tab;
+  const newPane = createPane(tab, target || pane.target);
+  const split = { type: 'split', dir, children: [pane, newPane], parent: null };
+  split.el = document.createElement('div');
+  split.el.className = `split split-${dir}`;
+  replaceNode(tab, pane, split);
+  pane.el.style.flexGrow = 1;
+  newPane.el.style.flexGrow = 1;
+  split.el.append(pane.el, makeDivider(split), newPane.el);
+  pane.parent = split;
+  newPane.parent = split;
+  startTerminal(newPane);
+  focusPane(newPane);
+  updateTabTitle(tab);
+}
+
+function closePane(pane) {
+  const tab = pane.tab;
+  disposePane(pane);
+  const parent = pane.parent;
+  if (!parent) {
+    removeTab(tab);
+    return;
+  }
+  const sibling = parent.children.find(c => c !== pane);
+  replaceNode(tab, parent, sibling);
+  if (tab.focused === pane) focusPane(allPanes(sibling)[0]);
+  updateTabTitle(tab);
+}
+
+function moveFocus(pane, dir) {
+  const cur = pane.el.getBoundingClientRect();
+  const cx = cur.left + cur.width / 2;
+  const cy = cur.top + cur.height / 2;
+  let best = null;
+  let bestDist = Infinity;
+  for (const p of allPanes(pane.tab.root)) {
+    if (p === pane) continue;
+    const r = p.el.getBoundingClientRect();
+    const inDir =
+      (dir === 'left' && r.right <= cur.left + 1) ||
+      (dir === 'right' && r.left >= cur.right - 1) ||
+      (dir === 'up' && r.bottom <= cur.top + 1) ||
+      (dir === 'down' && r.top >= cur.bottom - 1);
+    if (!inDir) continue;
+    const dist = Math.hypot(r.left + r.width / 2 - cx, r.top + r.height / 2 - cy);
+    if (dist < bestDist) { best = p; bestDist = dist; }
+  }
+  if (best) focusPane(best);
+}
+
+const ARROW_DIRS = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down' };
+
+// Returns false so xterm doesn't process the key.
+function handleShortcut(e, pane) {
+  if (e.type !== 'keydown') return true;
+  let action = null;
+  if (e.ctrlKey && e.shiftKey && !e.altKey) {
+    if (e.code === 'KeyE') action = () => splitPane(pane, 'row');
+    else if (e.code === 'KeyO') action = () => splitPane(pane, 'column');
+    else if (e.code === 'KeyX') action = () => closePane(pane);
+    else if (e.code === 'KeyB') action = () => toggleBroadcast(pane.tab);
+    // the global listener opens the palette; here we just keep it from reaching the shell
+    else if (e.code === 'KeyK') action = () => {};
+  } else if (e.altKey && !e.ctrlKey && !e.shiftKey && ARROW_DIRS[e.key]) {
+    action = () => moveFocus(pane, ARROW_DIRS[e.key]);
+  }
+  if (!action) return true;
+  e.preventDefault();
+  action();
+  return false;
+}
+
+function updateTabTitle(tab) {
+  const panes = allPanes(tab.root);
+  const first = panes[0].target.instance;
+  tab.titleEl.textContent = (first.name || first.id) + (panes.length > 1 ? ` +${panes.length - 1}` : '');
+}
+
+function toggleBroadcast(tab) {
+  tab.broadcast = !tab.broadcast;
+  tab.rootEl.classList.toggle('broadcast', tab.broadcast);
+  if (tab.id === activeTabId) broadcastBtn.classList.toggle('on', tab.broadcast);
+}
+
+function newTab(target) {
+  emptyDiv.style.display = 'none';
+  const tab = { id: ++seq, broadcast: false, focused: null };
+
+  tab.tabEl = document.createElement('div');
+  tab.tabEl.className = 'tab';
+  tab.titleEl = document.createElement('span');
+  const closeEl = document.createElement('span');
+  closeEl.className = 'close';
+  closeEl.textContent = '✕';
+  tab.tabEl.append(tab.titleEl, closeEl);
+  tab.tabEl.addEventListener('click', (e) => {
+    if (e.target === closeEl) removeTab(tab);
+    else activateTab(tab.id);
+  });
+  tabsDiv.appendChild(tab.tabEl);
+
+  tab.rootEl = document.createElement('div');
+  tab.rootEl.className = 'tab-root';
+  terminalsDiv.appendChild(tab.rootEl);
+
+  const pane = createPane(tab, target);
+  tab.root = pane;
+  tab.rootEl.appendChild(pane.el);
+  tabs.push(tab);
+  updateTabTitle(tab);
+  activateTab(tab.id);
+  startTerminal(pane);
+  focusPane(pane);
+}
+
+function activateTab(id) {
+  activeTabId = id;
+  for (const t of tabs) {
+    const active = t.id === id;
+    t.tabEl.classList.toggle('active', active);
+    t.rootEl.classList.toggle('active', active);
+  }
+  const tab = activeTab();
+  tabToolsDiv.style.display = tab ? '' : 'none';
+  if (!tab) return;
+  broadcastBtn.classList.toggle('on', tab.broadcast);
+  requestAnimationFrame(() => {
+    allPanes(tab.root).forEach(fitPane);
+    if (tab.focused) focusPane(tab.focused);
+  });
+}
+
+function removeTab(tab) {
+  const idx = tabs.indexOf(tab);
+  if (idx === -1) return;
+  allPanes(tab.root).forEach(disposePane);
+  tab.tabEl.remove();
+  tab.rootEl.remove();
+  tabs.splice(idx, 1);
+  if (tabs.length === 0) {
+    emptyDiv.style.display = 'flex';
+    activateTab(null);
+  } else if (activeTabId === tab.id) {
+    activateTab(tabs[tabs.length - 1].id);
+  }
+}
+
+
+splitRowBtn.addEventListener('click', () => { const t = activeTab(); if (t && t.focused) splitPane(t.focused, 'row'); });
+splitColBtn.addEventListener('click', () => { const t = activeTab(); if (t && t.focused) splitPane(t.focused, 'column'); });
+broadcastBtn.addEventListener('click', () => { const t = activeTab(); if (t) toggleBroadcast(t); });
+
+// ---- global keyboard / startup -------------------------------------------
+
+accountBtn.addEventListener('click', () => openPalette('accounts'));
+searchBtn.addEventListener('click', () => openPalette(currentAuth() ? 'instances' : 'accounts'));
+
+document.addEventListener('keydown', (e) => {
+  // Ctrl+K outside terminals (inside it's the shell's kill-line);
+  // Ctrl+Shift+K anywhere.
+  const inTerminal = e.target instanceof Element && e.target.closest('.xterm');
+  if (e.ctrlKey && !e.altKey && e.code === 'KeyK' && (e.shiftKey || !inTerminal)) {
+    e.preventDefault();
+    if (pal.mode) closePalette();
+    else openPalette(currentAuth() ? 'instances' : 'accounts');
+    return;
+  }
+  if (e.key === 'Escape') {
+    if (pal.mode === 'detail') { e.preventDefault(); backFromDetail(); }
+    else if (pal.mode) { e.preventDefault(); closePalette(); }
+    else closePopovers();
+  }
+});
+
+// Alt+arrow is "back" in the browser: don't lose sessions by accident
+window.addEventListener('beforeunload', (e) => {
+  if (tabs.length) { e.preventDefault(); e.returnValue = ''; }
+});
+
+renderTopbar();
+renderHome();
+loadProfiles();
+checkSso();
+loadTunnels();
+</script>
+</body>
+</html>

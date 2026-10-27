@@ -1,0 +1,33 @@
+{
+  "name": "aws-ssm-web",
+  "version": "1.0.0",
+  "description": "Local web UI for AWS SSM Session Manager: search EC2 instances, multi-pane SSM terminals, port-forwarding tunnels and SAML SSO",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lucapec/aws-ssm-web.git"
+  },
+  "keywords": [
+    "aws",
+    "ssm",
+    "session-manager",
+    "ec2",
+    "terminal",
+    "saml",
+    "sso"
+  ],
+  "private": true,
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "node-pty": "^1.0.0",
+    "playwright-core": "^1.47.0",
+    "ws": "^8.18.0"
+  },
+  "allowScripts": {
+    "node-pty@1.1.0": true
+  }
+}

@@ -1,0 +1,21 @@
+services:
+  aws-ssm-web:
+    build: .
+    image: aws-ssm-web:local
+    container_name: aws-ssm-web
+    ports:
+      - "127.0.0.1:4177:4177"
+      # local ports for SSM tunnels (port forwarding), see TUNNEL_PORT_RANGE
+      - "127.0.0.1:15000-15019:15000-15019"
+    environment:
+      TUNNEL_PORT_RANGE: "15000-15019"
+    volumes:
+      # Mounted at .aws-ro (not .aws) because aws-cli needs to write its cache
+      # (cli/cache); the entrypoint builds a writable ~/.aws with symlinks to
+      # config/credentials. See entrypoint.sh.
+      - ${HOME}/.aws:/home/node/.aws-ro:ro
+      # The SSO token cache is shared read-write with the host: an
+      # 'aws sso login' on the host is picked up by the container instantly
+      # (no restart), and if aws-cli refreshes the token here the host sees it.
+      - ${HOME}/.aws/sso:/home/node/.aws/sso
+    restart: unless-stopped
