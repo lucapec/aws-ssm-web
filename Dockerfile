@@ -25,7 +25,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && unzip -q /tmp/awscliv2.zip -d /tmp \
     && /tmp/aws/install \
     && rm -rf /tmp/awscliv2.zip /tmp/aws \
-    && curl -fsSL "https://s3.amazonaws.com/session-manager-downloads/plugin/latest/ubuntu_64bit/session-manager-plugin.deb" -o /tmp/smp.deb \
+    && curl -fsSL "https://s3.amazonaws.com/session-manager-downloads/plugin/latest/$(dpkg --print-architecture | sed 's/amd64/ubuntu_64bit/;s/arm64/ubuntu_arm64/')/session-manager-plugin.deb" -o /tmp/smp.deb \
     && dpkg -i /tmp/smp.deb \
     && rm -f /tmp/smp.deb \
     && apt-get purge -y curl unzip \
@@ -36,7 +36,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # matches the host user's uid — needed for the read-only ~/.aws bind mount
 WORKDIR /app
 COPY --from=deps --chown=node:node /app/node_modules ./node_modules
-COPY --chown=node:node package.json server.js sso.js ./
+COPY --chown=node:node package.json server.js sso.js aws.js ./
 COPY --chown=node:node public ./public
 COPY --chown=node:node entrypoint.sh ./
 # ~/.aws must exist and be owned by node before docker mounts ~/.aws/sso
