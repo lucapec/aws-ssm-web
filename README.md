@@ -89,6 +89,10 @@ Then switch to **SSO** in the top bar and sign in. The first time you'll do your
 (MFA included) in a dedicated browser profile (`.browser-profile/`, gitignored) that never touches
 your regular browser; after that the IdP session is reused while it's valid.
 
+The SAML assertion is only accepted by AWS for a few minutes (its `NotOnOrAfter`, usually 5 min). Role
+credentials are cached for their whole lifetime (1 h by default), but assuming a role you haven't used
+yet, or renewing expired credentials, after that window means signing in again.
+
 Optionally, map account ids to friendly names in the role picker by copying
 `accounts-map.example.json` to `accounts-map.json` (gitignored) or pointing `ACCOUNTS_MAP_FILE` at
 your own file.
@@ -135,7 +139,9 @@ The profile or role you use needs, depending on the features:
 
 - Binds to `127.0.0.1` only. It has no auth of its own, so never expose it on a network.
 - Every HTTP and WebSocket request must come from the app's own origin, so another tab in your browser
-  can't drive it against `localhost`. Power actions are `POST`-only.
+  can't drive it against `localhost`. The `Host` header must be `127.0.0.1:<port>` or
+  `localhost:<port>`, which blocks DNS rebinding. Power actions are `POST`-only.
+- xterm.js is served from `node_modules`; the page loads no third-party scripts.
 - SSO credentials (the SAML assertion and the STS credentials) live in process memory only and are
   never written to disk. Local profiles are used through the `aws` CLI as usual.
 - The SSO login runs in a separate, dedicated Chromium profile, never in your regular browser.

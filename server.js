@@ -9,6 +9,7 @@ const crypto = require('crypto');
 const { spawn: spawnProc } = require('child_process');
 const pty = require('node-pty');
 const { WebSocketServer } = require('ws');
+const { runAws } = require('./aws');
 const sso = require('./sso');
 
 const HOST = process.env.HOST || '127.0.0.1';
@@ -29,15 +30,32 @@ function isAllowedOrigin(origin) {
   return !origin || ALLOWED_ORIGINS.has(origin);
 }
 
+// Browsers don't send Origin on same-origin GETs, so the check above alone
+// doesn't stop DNS rebinding (evil.example re-resolving to 127.0.0.1 and
+// reading /api/* as "same origin"). The Host header still says
+// evil.example in that case, so only accept our own.
+const ALLOWED_HOSTS = new Set([`127.0.0.1:${PORT}`, `localhost:${PORT}`]);
+
+function isAllowedHost(host) {
+  return ALLOWED_HOSTS.has(String(host || '').toLowerCase());
+}
+
 const app = express();
 app.use(express.json());
 app.use((req, res, next) => {
+  if (!isAllowedHost(req.headers.host)) {
+    return res.status(403).json({ error: 'Host not allowed' });
+  }
   if (!isAllowedOrigin(req.headers.origin)) {
     return res.status(403).json({ error: 'Origin not allowed' });
   }
   next();
 });
 app.use(express.static(path.join(__dirname, 'public')));
+// xterm is served from node_modules rather than a CDN: this page drives
+// shells with live credentials, so no third-party script should run in it.
+app.use('/vendor/xterm', express.static(path.join(__dirname, 'node_modules', '@xterm', 'xterm')));
+app.use('/vendor/xterm-addon-fit', express.static(path.join(__dirname, 'node_modules', '@xterm', 'addon-fit')));
 
 // ---- profile discovery -----------------------------------------------
 
@@ -52,7 +70,6 @@ function parseProfileNames(filePath, stripPrefix) {
     if (stripPrefix && name.startsWith('profile ')) {
       name = name.slice('profile '.length).trim();
     }
-    if (name === 'default') name = 'default';
     names.push(name);
   }
   return names;
@@ -103,27 +120,6 @@ app.get('/api/sso/roles', (req, res) => {
 const PROFILE_RE = /^[A-Za-z0-9_.@-]+$/;
 const REGION_RE = /^[a-z0-9-]+$/;
 const ROLE_ARN_RE = /^arn:aws:iam::\d+:role\/\S+$/;
-
-function runAws(args, extraEnv) {
-  return new Promise((resolve, reject) => {
-    const child = spawnProc('aws', args, {
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env: extraEnv ? { ...process.env, ...extraEnv } : process.env,
-    });
-    let stdout = '';
-    let stderr = '';
-    child.stdout.on('data', (d) => (stdout += d));
-    child.stderr.on('data', (d) => (stderr += d));
-    child.on('error', reject);
-    child.on('close', (code) => {
-      if (code !== 0) {
-        reject(new Error(stderr.trim() || `aws exited with code ${code}`));
-      } else {
-        resolve(stdout);
-      }
-    });
-  });
-}
 
 function stsCredsToEnv(creds) {
   return {
@@ -278,10 +274,31 @@ function listenProxy(localPort, internalPort) {
   });
 }
 
-async function pickLocalPort() {
-  const used = new Set([...tunnels.values()].map((t) => t.localPort));
+// Closed tunnels stay listed (so their error can be shown) until removed,
+// but their port is free again.
+function livePorts() {
+  return new Set([...tunnels.values()].filter((t) => t.status !== 'closed').map((t) => t.localPort));
+}
+
+// Binds the proxy on the requested port, or on the first port of the range
+// that isn't taken by one of our tunnels nor by any other process.
+async function openProxy(requestedPort, internalPort) {
+  if (requestedPort) {
+    try {
+      return { server: await listenProxy(requestedPort, internalPort), localPort: requestedPort };
+    } catch (err) {
+      if (err.code === 'EADDRINUSE') throw new Error(`Local port ${requestedPort} is already in use`);
+      throw err;
+    }
+  }
+  const used = livePorts();
   for (let p = TUNNEL_PORT_MIN; p <= TUNNEL_PORT_MAX; p++) {
-    if (!used.has(p)) return p;
+    if (used.has(p)) continue;
+    try {
+      return { server: await listenProxy(p, internalPort), localPort: p };
+    } catch (err) {
+      if (err.code !== 'EADDRINUSE') throw err;
+    }
   }
   throw new Error(`No free ports in ${TUNNEL_PORT_MIN}-${TUNNEL_PORT_MAX}`);
 }
@@ -318,16 +335,17 @@ app.post('/api/tunnels', async (req, res) => {
 
   let server;
   try {
-    const localPort = body.localPort ? Number(body.localPort) : await pickLocalPort();
-    if (!isPort(localPort) || localPort < TUNNEL_PORT_MIN || localPort > TUNNEL_PORT_MAX) {
+    const requestedPort = body.localPort ? Number(body.localPort) : null;
+    if (requestedPort !== null && (!isPort(requestedPort) || requestedPort < TUNNEL_PORT_MIN || requestedPort > TUNNEL_PORT_MAX)) {
       throw new Error(`The local port must be in ${TUNNEL_PORT_MIN}-${TUNNEL_PORT_MAX}`);
     }
-    if ([...tunnels.values()].some((t) => t.localPort === localPort)) {
-      throw new Error(`Local port ${localPort} is already used by another tunnel`);
+    if (requestedPort !== null && livePorts().has(requestedPort)) {
+      throw new Error(`Local port ${requestedPort} is already used by another tunnel`);
     }
     const { authArgs, authEnv } = await resolveAuth(body);
     const internalPort = await freeInternalPort();
-    server = await listenProxy(localPort, internalPort);
+    let localPort;
+    ({ server, localPort } = await openProxy(requestedPort, internalPort));
 
     const params = remoteHost
       ? { host: [remoteHost], portNumber: [String(remotePort)], localPortNumber: [String(internalPort)] }
@@ -401,8 +419,33 @@ const server = app.listen(PORT, HOST, () => {
 const wss = new WebSocketServer({
   server,
   path: '/ws/ssm',
-  verifyClient: (info) => isAllowedOrigin(info.origin),
+  verifyClient: (info) => isAllowedHost(info.req.headers.host) && isAllowedOrigin(info.origin),
 });
+
+function isTermSize(n) {
+  return Number.isInteger(n) && n >= 1 && n <= 1000;
+}
+
+function handleTerminalMessage(shell, msg) {
+  let parsed;
+  try {
+    parsed = JSON.parse(msg.toString());
+  } catch {
+    parsed = { type: 'input', data: msg.toString() };
+  }
+  if (!parsed || typeof parsed !== 'object') return;
+  // node-pty throws once the process has exited; an exception escaping a
+  // ws event handler would take the whole server down.
+  try {
+    if (parsed.type === 'resize' && isTermSize(parsed.cols) && isTermSize(parsed.rows)) {
+      shell.resize(parsed.cols, parsed.rows);
+    } else if (parsed.type === 'input' && typeof parsed.data === 'string') {
+      shell.write(parsed.data);
+    }
+  } catch {
+    /* already dead */
+  }
+}
 
 wss.on('connection', async (ws, req) => {
   const url = new URL(req.url, `http://${HOST}`);
@@ -410,6 +453,22 @@ wss.on('connection', async (ws, req) => {
   const profile = url.searchParams.get('profile') || '';
   const region = url.searchParams.get('region') || DEFAULT_REGION;
   const instanceId = url.searchParams.get('instanceId') || '';
+
+  // Listen before the auth below, which can take a while for an SSO role
+  // (sts:assume-role-with-saml): the client sends its real size as soon as
+  // the socket opens, and that message must not be lost.
+  let shell = null;
+  let closed = false;
+  const pending = [];
+  ws.on('message', (msg) => (shell ? handleTerminalMessage(shell, msg) : pending.push(msg)));
+  ws.on('close', () => {
+    closed = true;
+    try {
+      if (shell) shell.kill();
+    } catch {
+      /* already dead */
+    }
+  });
 
   if (!REGION_RE.test(region) || !INSTANCE_ID_RE.test(instanceId)) {
     ws.send('\r\n\x1b[31mInvalid parameters.\x1b[0m\r\n');
@@ -426,10 +485,11 @@ wss.on('connection', async (ws, req) => {
     ws.close();
     return;
   }
+  if (closed) return;
 
   const args = ['ssm', 'start-session', ...authArgs, '--region', region, '--target', instanceId];
 
-  const shell = pty.spawn('aws', args, {
+  shell = pty.spawn('aws', args, {
     name: 'xterm-256color',
     cols: 80,
     rows: 24,
@@ -448,26 +508,5 @@ wss.on('connection', async (ws, req) => {
     }
   });
 
-  ws.on('message', (msg) => {
-    let parsed;
-    try {
-      parsed = JSON.parse(msg.toString());
-    } catch {
-      shell.write(msg.toString());
-      return;
-    }
-    if (parsed.type === 'resize' && parsed.cols && parsed.rows) {
-      shell.resize(parsed.cols, parsed.rows);
-    } else if (parsed.type === 'input') {
-      shell.write(parsed.data);
-    }
-  });
-
-  ws.on('close', () => {
-    try {
-      shell.kill();
-    } catch {
-      /* already dead */
-    }
-  });
+  for (const msg of pending.splice(0)) handleTerminalMessage(shell, msg);
 });
