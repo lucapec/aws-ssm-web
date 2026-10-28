@@ -19,9 +19,12 @@
   "private": true,
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test"
   },
   "dependencies": {
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/xterm": "^5.5.0",
     "express": "^4.19.2",
     "node-pty": "^1.0.0",
     "playwright-core": "^1.47.0",
