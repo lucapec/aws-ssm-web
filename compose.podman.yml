@@ -1,0 +1,12 @@
+# Podman (rootless) override for docker-compose.yml:
+#
+#   podman-compose -f docker-compose.yml -f compose.podman.yml up -d --build
+#
+# Rootless podman maps the host user to root inside the container, so the
+# container's "node" user (uid 1000) would be some unprivileged subuid on the
+# host and could not read ~/.aws/config (mode 600) or write ~/.aws/sso.
+# keep-id maps the host user to the same uid inside the container instead.
+# Docker does not support keep-id, so this lives in a podman-only file.
+services:
+  aws-ssm-web:
+    userns_mode: keep-id

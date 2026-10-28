@@ -68,6 +68,18 @@ shared read-write so an `aws sso login` on the host is picked up immediately. Th
 
 SAML SSO mode opens a real browser window, so it needs to run on the host, not in the container.
 
+### Podman rootless (local profiles only)
+
+```bash
+podman-compose -f docker-compose.yml -f compose.podman.yml up -d --build
+```
+
+[`compose.podman.yml`](compose.podman.yml) only adds `userns_mode: keep-id`: rootless Podman maps your
+user to root inside the container, so without it the container's `node` user can't read
+`~/.aws/config` (mode `600`) or write `~/.aws/sso`. Requires `podman-compose`; if you prefer
+`podman compose`, set `PODMAN_COMPOSE_PROVIDER=podman-compose` (otherwise it may pick the Docker
+Compose plugin, which needs the Podman socket running).
+
 ## SAML SSO setup
 
 Set `SSO_LOGIN_URL` to the **IdP-initiated sign-in URL** of the AWS SAML application in your identity
